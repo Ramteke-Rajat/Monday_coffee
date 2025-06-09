@@ -26,9 +26,11 @@ SELECT
 FROM
 	sales as s
 JOIN customers as c
-ON s.customer_id = c.customer_id
+ON
+	s.customer_id = c.customer_id
 JOIN city as ct
-ON ct.city_id = c.city_id
+ON
+	ct.city_id = c.city_id
 WHERE	
 	EXTRACT(YEAR FROM s.sale_date) = 2023
 	AND
@@ -39,42 +41,205 @@ ORDER BY 2 DESC;
 3. **Sales Count for Each Product**  
    How many units of each coffee product have been sold?
 ```sql
-
+SELECT 
+	p.product_name,
+	COUNT(sale_id) as total_orders
+FROM
+	products as p
+LEFT JOIN sales as s
+ON 
+	p.product_id = s.product_id
+GROUP BY 1
+ORDER BY 2 DESC;
 ```
 4. **Average Sales Amount per City**  
    What is the average sales amount per customer in each city?
 ```sql
+SELECT
+	ct.city_name,
+	COUNT(DISTINCT c.customer_id) as total_cx,
+	ROUND(
+			SUM(s.total) ::numeric/COUNT(DISTINCT c.customer_id) ::numeric
+			,2
+		) as average_revenue
+FROM
+	sales as s
+JOIN customers as c
+ON 
+	s.customer_id = c.customer_id
+JOIN city as ct
+ON 
+	ct.city_id = c.city_id
 
+GROUP BY 1
+ORDER BY 3 DESC;
 ```
 5. **City Population and Coffee Consumers**  
    Provide a list of cities along with their populations and estimated coffee consumers.
 ```sql
+WITH city_table
+AS
+(
+	SELECT 
+		city_name,
+		ROUND(
+			(0.25 * population)/1000000,
+			2) as coffee_consumers_count_in_millions
+	FROM
+		city
+),
+customer_table
+AS 
+(
+	SELECT
+		ci.city_name,
+		COUNT(DISTINCT c.customer_id) as unique_cx
+	FROM 
+		sales as s
+	JOIN customers as c
+	ON 
+		c.customer_id = s.customer_id
+	JOIN city as ci
+	ON 
+		ci.city_id = c.city_id
+	GROUP BY 1
+)
 
+SELECT 
+	city_table.city_name,
+	city_table.coffee_consumers_count_in_millions,
+	customer_table.unique_cx
+FROM 
+	city_table 
+JOIN customer_table 
+ON 
+	customer_table.city_name = city_table.city_name;
 ```
 6. **Top Selling Products by City**  
    What are the top 3 selling products in each city based on sales volume?
 ```sql
-
+SELECT 
+	*
+FROM
+(
+	SELECT
+		ci.city_name,
+		p.product_name,
+		COUNT(sale_id) as total_orders,
+		DENSE_RANK() OVER(PARTITION BY ci.city_name ORDER BY COUNT(sale_id) DESC) as rank
+	FROM 
+		sales as s
+	JOIN products as p
+	ON 
+		p.product_id = s.product_id
+	JOIN customers as c
+	ON
+		c.customer_id = s.customer_id
+	JOIN city as ci
+	ON
+		ci.city_id = c.city_id
+	GROUP BY 1,2
+)
+WHERE rank <= 3;
 ```
 7. **Customer Segmentation by City**  
    How many unique customers are there in each city who have purchased coffee products?
 ```sql
-
+SELECT 
+	ci.city_name,
+	COUNT(DISTINCT c.customer_id) as unique_cx
+FROM
+	city as ci
+LEFT JOIN customers as c
+ON 
+	c.city_id = ci.city_id
+JOIN sales as s
+ON
+	s.customer_id = c.customer_id
+WHERE 
+	s.product_id <= 14
+GROUP BY 1;
 ```
 8. **Average Sale vs Rent**  
    Find each city and their average sale per customer and avg rent per customer
 ```sql
-
+SELECT
+	ci.city_name,
+	ci.estimated_rent,
+	ROUND (ci.estimated_rent ::numeric / COUNT(DISTINCT c.customer_id) ::numeric, 2) as average_rent,
+	COUNT(DISTINCT c.customer_id),
+	ROUND (SUM(s.total) ::numeric / COUNT(DISTINCT c.customer_id) ::numeric, 2) as average_sale
+	
+FROM
+	city as ci
+LEFT JOIN customers as c
+ON 
+	c.city_id = ci.city_id
+JOIN sales as s
+ON
+	s.customer_id = c.customer_id
+GROUP BY 1,2
+ORDER BY 5 DESC;
 ```
 9. **Monthly Sales Growth**  
    Sales growth rate: Calculate the percentage growth (or decline) in sales over different time periods (monthly).
 ```sql
+WITH monthly_sales
+as
+(
+	SELECT 
+		ci.city_name as city,
+		EXTRACT(YEAR FROM s.sale_date) as year,
+		EXTRACT(MONTH FROM s.sale_date) as month,
+		SUM(s.total) as total_sale
+	FROM 
+		sales as s
+	JOIN customers as c
+	ON
+		c.customer_id = s.customer_id
+	JOIN city as ci
+	ON
+		ci.city_id = c.city_id
+	GROUP BY 1,2,3
+	ORDER BY 1,2, 3
+)
 
+SELECT
+	city,
+	year,
+	month,
+	total_sale as current_month_sale,
+	LAG(total_sale, 1) OVER(PARTITION BY city ORDER BY year, month) as previous_mnth_sale,
+	ROUND
+		(
+		(
+		(total_sale ::numeric  - LAG(total_sale, 1) OVER(PARTITION BY city ORDER BY year, month) ::numeric)/LAG(total_sale, 1) OVER(PARTITION BY city ORDER BY year, month) ::numeric
+		) * 100, 2
+		) as growth_ratio
+FROM
+	monthly_sales;
 ```
 10. **Market Potential Analysis**  
     Identify top 3 city based on highest sales, return city name, total sale, total rent, total customers, estimated  coffee consumer
 ```sql
-
+SELECT
+	ci.city_name as city,
+	SUM(s.total) as sales,
+	ci.estimated_rent,
+	COUNT(DISTINCT c.customer_id) as unique_cx,
+	ROUND((ci.population * 0.25)/1000000, 3) as est_coffee_consumer_in_millions,
+	ROUND(SUM(s.total ::numeric)/COUNT(DISTINCT c.customer_id), 2) as avg_sale_per_cx,
+	ROUND(ci.estimated_rent ::numeric/COUNT(DISTINCT c.customer_id), 2)
+FROM
+	sales as s
+JOIN customers as c
+ON
+	c.customer_id = s.customer_id
+JOIN city as ci
+ON
+	ci.city_id = c.city_id
+GROUP BY 1 , 3, 5
+ORDER BY 2 DESC;
 ```
 
 ## Recommendations
